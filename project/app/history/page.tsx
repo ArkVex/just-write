@@ -3,6 +3,10 @@
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { useEffect } from "react";
+import { useAuth } from "@/components/providers/supabase-auth-provider";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 const mockData = [
   { date: "Mon", productivity: 65 },
@@ -30,6 +34,20 @@ const mockEntries = [
 ];
 
 export default function History() {
+  const { user } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!user) {
+      toast.error("Please sign in to access history");
+      router.push('/login');
+    }
+  }, [user, router]);
+
+  if (!user) {
+    return null;
+  }
+
   return (
     <div className="space-y-8">
       <motion.div

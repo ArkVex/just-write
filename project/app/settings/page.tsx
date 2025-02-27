@@ -1,5 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
+import { useAuth } from "@/components/providers/supabase-auth-provider";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -9,6 +12,9 @@ import { Download, Trash2, Bell, ChartBar } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Settings() {
+  const { user } = useAuth();
+  const router = useRouter();
+
   const handleExport = () => {
     toast.success("Data exported successfully!");
   };
@@ -16,6 +22,17 @@ export default function Settings() {
   const handleReset = () => {
     toast.success("Data reset successfully!");
   };
+
+  useEffect(() => {
+    if (!user) {
+      toast.error("Please sign in to access settings");
+      router.push('/login');
+    }
+  }, [user, router]);
+
+  if (!user) {
+    return null;
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">

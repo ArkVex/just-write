@@ -6,6 +6,52 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 // Use environment variable for API key
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY!);
 
+interface AnalysisResult {
+  score: number | null;
+  accomplishments: string[];
+  improvements: string[];
+  tips: string[];
+  rawAnalysis: string;
+}
+
+function parseAnalysis(text: string): AnalysisResult {
+  const sections = text.split('\n\n');
+  const result: AnalysisResult = {
+    score: null,
+    accomplishments: [],
+    improvements: [],
+    tips: [],
+    rawAnalysis: text
+  };
+
+  sections.forEach(section => {
+    if (section.includes('PRODUCTIVITY SCORE')) {
+      const scoreMatch = section.match(/PRODUCTIVITY SCORE:\s*(\d+)/);
+      result.score = scoreMatch ? parseInt(scoreMatch[1], 10) : null;
+    } else if (section.includes('KEY ACCOMPLISHMENTS')) {
+      result.accomplishments = section
+        .split('\n')
+        .slice(1) // Skip the title
+        .map(line => line.replace(/^\d+\.\s*/, '').trim())
+        .filter(Boolean);
+    } else if (section.includes('AREAS FOR IMPROVEMENT')) {
+      result.improvements = section
+        .split('\n')
+        .slice(1)
+        .map(line => line.replace(/^\d+\.\s*/, '').trim())
+        .filter(Boolean);
+    } else if (section.includes('ACTIONABLE TIPS')) {
+      result.tips = section
+        .split('\n')
+        .slice(1)
+        .map(line => line.replace(/^\d+\.\s*/, '').trim())
+        .filter(Boolean);
+    }
+  });
+
+  return result;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { content } = await req.json();
@@ -43,9 +89,13 @@ export async function POST(req: NextRequest) {
       .replace(/`/g, '')
       .trim();
 
+    const analysisResult = parseAnalysis(cleanAnalysis);
+    console.log('📊 Parsed analysis:', analysisResult);
+
     return NextResponse.json({ 
       success: true,
-      analysis: cleanAnalysis 
+      analysis: cleanAnalysis,
+      ...analysisResult
     });
   } catch (error) {
     console.error("❌ API Error:", error);

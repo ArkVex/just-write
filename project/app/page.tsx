@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -10,15 +10,28 @@ import { Sparkles, Pencil } from "lucide-react";
 import Link from "next/link";
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useAuth } from "@/components/providers/supabase-auth-provider";
+import { AIAnalysisDialog } from "@/components/ai-analysis-dialog";
+import { useRouter } from 'next/navigation';
 
 export default function Home() {
   const supabase = createClientComponentClient();
   const { user } = useAuth();
+  const router = useRouter();
   const [entry, setEntry] = useState("");
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [showAnalysis, setShowAnalysis] = useState(false);
+
+  // Add ref for scroll container
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const handleSubmit = async () => {
+    if (!user) {
+      toast.error("Please sign in to continue");
+      router.push('/login');
+      return;
+    }
+
     if (!entry.trim()) {
       toast.error("Please write something before submitting");
       return;
@@ -26,15 +39,49 @@ export default function Home() {
 
     setLoading(true);
     try {
+      // Send to Gemini API first
+      console.log('📝 Sending entry to analyze...');
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          content: entry.trim()
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const {
+        success,
+        analysis,
+        score,
+        accomplishments,
+        improvements,
+        tips,
+        error
+      } = await response.json();
+
+      if (!success) {
+        throw new Error(error || 'Failed to get analysis');
+      }
+
       // Handle Supabase save if user is logged in
       if (user) {
-        console.log('Attempting save for user:', user.id);
-        
+        console.log('Saving entry with feedback for user:', user.id);
+
         const { data, error } = await supabase
           .from('entries')
           .insert({
             content: entry.trim(),
-            user_id: user.id
+            user_id: user.id,
+            productivity_score: score,
+            key_accomplishments: accomplishments,
+            areas_for_improvement: improvements,
+            actionable_tips: tips
           })
           .select()
           .single();
@@ -44,35 +91,20 @@ export default function Home() {
           throw error;
         }
 
-        console.log('Entry saved:', data);
-      }
-
-      // Send to Gemini API
-      console.log('📝 Sending entry to analyze...');
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          content: entry.trim() 
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-
-      const { success, analysis, error } = await response.json();
-      
-      if (!success) {
-        throw new Error(error || 'Failed to get analysis');
+        console.log('Entry saved with feedback:', data);
       }
 
       console.log('✅ Analysis received:', analysis);
       setFeedback(analysis);
       setEntry("");
+      setShowAnalysis(true); // Show dialog after successful analysis
       toast.success("Entry analyzed successfully!");
+
+      // Scroll to top smoothly after successful submission
+      containerRef.current?.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
 
     } catch (error: any) {
       console.error('❌ Error:', error);
@@ -83,18 +115,25 @@ export default function Home() {
   };
 
   return (
-    <div className="h-screen bg-gradient-to-b from-background to-secondary/20 overflow-x-hidden -mt-16">
-      <div className="noise opacity-20" />
-      <div className="h-full flex items-center justify-center p-4">
-        <div className="fixed w-[200px] h-[200px] sm:w-[300px] sm:h-[300px] top-0 -left-20 bg-primary/20 blur-3xl opacity-20" />
-        <div className="fixed w-[200px] h-[200px] sm:w-[300px] sm:h-[300px] bottom-0 -right-20 bg-secondary/20 blur-3xl opacity-20" />
-        
-        <div className="w-full max-w-xl mx-auto space-y-4 relative z-10">
+    <div className="min-h-screen bg-gradient-to-b from-background to-secondary/20 relative">
+      <div className="noise opacity-20 fixed inset-0" />
+
+      {/* Fixed background elements */}
+      <div className="fixed w-[200px] h-[200px] sm:w-[300px] sm:h-[300px] top-0 -left-20 bg-primary/20 blur-3xl opacity-20" />
+      <div className="fixed w-[200px] h-[200px] sm:w-[300px] sm:h-[300px] bottom-0 -right-20 bg-secondary/20 blur-3xl opacity-20" />
+
+      {/* Scrollable content container */}
+      <div
+        ref={containerRef}
+        className="relative z-10 h-screen overflow-y-auto px-4 pt-16 pb-8"
+      >
+        <div className="max-w-xl mx-auto space-y-6">
+          {/* Title section */}
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7 }}
-            className="text-center space-y-2 mb-6"
+            className="text-center mb-6"
           >
             <h1 className=" text-4xl sm:text-5xl md:text-6xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">
               JustWrite
@@ -104,6 +143,7 @@ export default function Home() {
             </p>
           </motion.div>
 
+          {/* Input card */}
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -121,7 +161,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                <Textarea 
+                <Textarea
                   placeholder="Today I..."
                   className="min-h-[80px] sm:min-h-[100px] text-sm sm:text-base bg-background/50 rounded-lg border border-primary/10 focus:border-primary/30 transition-all p-2 sm:p-3 resize-none"
                   value={entry}
@@ -152,61 +192,30 @@ export default function Home() {
             </Card>
           </motion.div>
 
-          {feedback && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <Card className="border border-secondary/10 shadow-lg shadow-secondary/5 overflow-hidden backdrop-blur-xl mt-4">
-                <div className="p-4 sm:p-6">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="h-12 w-12 rounded-lg bg-secondary/10 flex items-center justify-center">
-                      <Sparkles className="h-6 w-6 text-secondary" />
-                    </div>
-                    <div>
-                      <h3 className="text-2xl font-bold text-secondary">Productivity Analysis</h3>
-                      <p className="text-sm text-muted-foreground">Daily Performance Insights</p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-6 whitespace-pre-line">
-                    {feedback.split('\n\n').map((section, i) => {
-                      const [title, ...content] = section.split('\n');
-                      return (
-                        <div key={i} className="space-y-2">
-                          <h4 className="text-lg font-semibold text-primary">
-                            {title.includes('SCORE') ? (
-                              <div className="flex items-baseline gap-2">
-                                <span>{title.replace('PRODUCTIVITY SCORE:', 'Score:')}</span>
-                              </div>
-                            ) : (
-                              title
-                            )}
-                          </h4>
-                          <div className="text-sm space-y-1 text-muted-foreground">
-                            {content.map((line, j) => (
-                              <div key={j} className="pl-4">
-                                {line.trim()}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </Card>
-            </motion.div>
-          )}
+          <AIAnalysisDialog
+            open={showAnalysis}
+            onOpenChange={setShowAnalysis}
+            analysis={feedback}
+          />
         </div>
       </div>
-      <div className="absolute top-4 right-4">
-        <Link href="/login">
-          <Button variant="ghost" className="hover:bg-primary/10">
-            Login
-          </Button>
-        </Link>
+
+      {/* Fixed login button */}
+      <div className="fixed top-4 right-4 z-20">
+        <Button 
+          variant="ghost" 
+          className="hover:bg-primary/10"
+          onClick={() => {
+            if (!user && router.pathname !== '/login') {
+              toast.error("Please sign in to access the dashboard");
+              router.push('/login');
+              return;
+            }
+            router.push('/dashboard');
+          }}
+        >
+          {user ? 'Dashboard' : 'Login'}
+        </Button>
       </div>
     </div>
   );
